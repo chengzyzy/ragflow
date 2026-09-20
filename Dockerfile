@@ -1,5 +1,9 @@
+ARG DEPS_PLATFORM=linux/amd64
+ARG DEPS_IMAGE=infiniflow/ragflow_deps:latest@sha256:e69762c256ea2338a786a9b2f003da8e91e5e69b26bb6797c2206276ce32e5ff
+FROM --platform=$DEPS_PLATFORM ${DEPS_IMAGE} AS ragflow_deps
+
 # base stage
-FROM ubuntu:24.04 AS base
+FROM ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3 AS base
 USER root
 SHELL ["/bin/bash", "-c"]
 
@@ -14,7 +18,7 @@ WORKDIR /ragflow
 
 # copy models downloaded via download_deps.py
 RUN mkdir -p /ragflow/rag/res/deepdoc /root/.ragflow
-RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/huggingface.co,target=/huggingface.co \
+RUN --mount=type=bind,from=ragflow_deps,source=/huggingface.co,target=/huggingface.co \
     tar --exclude='.*' -cf - \
         /huggingface.co/InfiniFlow/text_concat_xgb_v1.0 \
         /huggingface.co/InfiniFlow/deepdoc \
@@ -22,7 +26,7 @@ RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/huggingface.co
 
 # https://github.com/chrismattmann/tika-python
 # This is the only way to run python-tika without internet access. Without this set, the default is to check the tika version and pull latest every time from Apache.
-RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/,target=/deps \
+RUN --mount=type=bind,from=ragflow_deps,source=/,target=/deps \
     cp -r /deps/nltk_data /root/ && \
     cp /deps/tika-server-standard-3.3.0.jar /deps/tika-server-standard-3.3.0.jar.md5 /ragflow/ && \
     cp /deps/cl100k_base.tiktoken /ragflow/9b5ad71b2ce5302211f9c61530b329a4922fc6a4
@@ -78,7 +82,7 @@ RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
     apt-mark hold nginx
 
 # Install uv
-RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/,target=/deps \
+RUN --mount=type=bind,from=ragflow_deps,source=/,target=/deps \
     if [ "$NEED_MIRROR" == "1" ]; then \
         mkdir -p /etc/uv && \
         echo 'python-install-mirror = "https://registry.npmmirror.com/-/binary/python-build-standalone/"' > /etc/uv/uv.toml && \
@@ -134,7 +138,7 @@ RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
 # cache path that `local.go:cacheDir()` constructs at runtime —
 # `/root/.cache/stagehand/lib/go_<ver>/stagehand-server-v3-<arch>`.
 ARG STAGEHAND_GO_VERSION=v3.21.0
-RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/,target=/deps \
+RUN --mount=type=bind,from=ragflow_deps,source=/,target=/deps \
     set -eux; \
     arch="$(uname -m)"; \
     case "$arch" in \
@@ -168,17 +172,37 @@ RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
 
 
 
-# Add dependencies of selenium
-RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/chrome-linux64-121-0-6167-85,target=/chrome-linux64.zip \
-    unzip /chrome-linux64.zip && \
-    mv chrome-linux64 /opt/chrome && \
-    ln -s /opt/chrome/chrome /usr/local/bin/
-RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/chromedriver-linux64-121-0-6167-85,target=/chromedriver-linux64.zip \
-    unzip -j /chromedriver-linux64.zip chromedriver-linux64/chromedriver && \
-    mv chromedriver /usr/local/bin/ && \
-    rm -f /usr/bin/google-chrome
+# Add dependencies of selenium.
+# x86_64 keeps the Chrome 121 shipped in ragflow_deps; aarch64 pulls the official
+# Chrome for Testing linux-arm64 build (the 121 release predates arm64 support).
+ARG CHROME_FOR_TESTING_VERSION=153.0.8010.52
+RUN --mount=type=bind,from=ragflow_deps,source=/chrome-linux64-121-0-6167-85,target=/chrome-linux64.zip \
+    --mount=type=bind,from=ragflow_deps,source=/chromedriver-linux64-121-0-6167-85,target=/chromedriver-linux64.zip \
+    set -eux; \
+    if [ "$(uname -m)" = "x86_64" ]; then \
+        unzip -q /chrome-linux64.zip && mv chrome-linux64 /opt/chrome; \
+        unzip -j -q /chromedriver-linux64.zip chromedriver-linux64/chromedriver && mv chromedriver /usr/local/bin/; \
+    elif [ "$(uname -m)" = "aarch64" ]; then \
+        cft="https://storage.googleapis.com/chrome-for-testing-public/${CHROME_FOR_TESTING_VERSION}/linux-arm64"; \
+        curl -fsSL -o /tmp/chrome.zip "${cft}/chrome-linux-arm64.zip"; \
+        curl -fsSL -o /tmp/chromedriver.zip "${cft}/chromedriver-linux-arm64.zip"; \
+        unzip -q /tmp/chrome.zip -d /tmp/cft && mv /tmp/cft/chrome-linux-arm64 /opt/chrome; \
+        unzip -j -q /tmp/chromedriver.zip chromedriver-linux-arm64/chromedriver -d /usr/local/bin/; \
+        chmod +x /usr/local/bin/chromedriver; \
+        rm -rf /tmp/chrome.zip /tmp/chromedriver.zip /tmp/cft; \
+    else echo "Unsupported browser architecture" >&2; exit 1; \
+    fi; \
+    ln -s /opt/chrome/chrome /usr/local/bin/chrome; \
+    ln -s /opt/chrome/chrome /usr/local/bin/google-chrome; \
+    rm -f /usr/bin/google-chrome; \
+    chrome_ver="$(/opt/chrome/chrome --version | awk '{print $NF}')"; \
+    driver_ver="$(/usr/local/bin/chromedriver --version | awk '{print $2}')"; \
+    test -n "$chrome_ver" && test "$chrome_ver" = "$driver_ver"; \
+    if [ "$(uname -m)" = "aarch64" ]; then \
+        test "$chrome_ver" = "$CHROME_FOR_TESTING_VERSION"; \
+    fi
 
-RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/,target=/deps \
+RUN --mount=type=bind,from=ragflow_deps,source=/,target=/deps \
     if [ "$(uname -m)" = "x86_64" ]; then \
         dpkg -i /deps/libssl1.1_1.1.1f-1ubuntu2_amd64.deb; \
     elif [ "$(uname -m)" = "aarch64" ]; then \
@@ -196,7 +220,7 @@ WORKDIR /ragflow
 # These are not inherited from base to keep the production image smaller.
 RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
     apt-get update --fix-missing && \
-    apt-get install -y build-essential libpython3-dev libicu-dev libgbm-dev && \
+    apt-get install -y build-essential libpython3-dev libicu-dev libgbm-dev zlib1g-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # install dependencies from uv.lock file
@@ -225,15 +249,23 @@ RUN --mount=type=cache,id=ragflow_uv,target=/root/.cache/uv,sharing=locked \
     # DEFAULT_HEALTH_CHECK_STALENESS_MULTIPLIER, 1.88.0 wheel pulled via
     # some proxies missing RedisPipelineLpopOperation) — always re-fetching
     # the locked version avoids serving a half-broken cached copy.
-    uv sync --python 3.13 --frozen --refresh-package litellm && \
+    uv_args=(); \
+    if [ "$(uname -m)" = "aarch64" ]; then uv_args+=(--no-install-package py-mini-racer); fi; \
+    uv sync --python 3.13 --frozen --refresh-package litellm "${uv_args[@]}" && \
     # Ensure pip is available in the venv for runtime package installation (fixes #12651)
     .venv/bin/python3 -m ensurepip --upgrade
+
+# mini-racer already provides py_mini_racer with a native ARM64 V8.
+# Check the actual import instead of adding a second module with the same name.
+RUN if [ "$(uname -m)" = "aarch64" ]; then \
+      .venv/bin/python3 -c 'from py_mini_racer import MiniRacer; ctx = MiniRacer(); assert ctx.eval("21 * 2") == 42; ctx.close()'; \
+    fi
 
 # Install frontend dependencies — depends only on package manifests so
 # web source / docs changes don't invalidate this layer.
 COPY web/package.json web/package-lock.json web/.npmrc ./web/
 RUN --mount=type=cache,id=ragflow_npm,target=/root/.npm,sharing=locked \
-    cd web && NODE_OPTIONS="--max-old-space-size=8192" npm install
+    cd web && NODE_OPTIONS="--max-old-space-size=8192" npm ci
 
 # Copy full web source and docs for the frontend build.
 COPY web web
@@ -241,8 +273,9 @@ COPY docs docs
 RUN --mount=type=cache,id=ragflow_npm,target=/root/.npm,sharing=locked \
     cd web && NODE_OPTIONS="--max-old-space-size=8192" VITE_BUILD_SOURCEMAP=false VITE_MINIFY=esbuild npm run build
 
+ARG RAGFLOW_VERSION
 RUN --mount=type=bind,source=.git,target=/ragflow/.git \
-    version_info=$(git describe --tags --match=v* --first-parent --always) && \
+    version_info=${RAGFLOW_VERSION:-$(git describe --tags --match=v* --first-parent --always)} && \
     echo "$version_info" > /ragflow/VERSION
 
 # production stage
@@ -256,7 +289,8 @@ ENV VIRTUAL_ENV=/ragflow/.venv
 COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
 ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 
-ENV PYTHONPATH=/ragflow/
+ENV PYTHONPATH=/ragflow/ \
+    API_PROXY_SCHEME=python
 
 COPY docker/service_conf.yaml.template ./conf/service_conf.yaml.template
 COPY docker/entrypoint*.sh ./

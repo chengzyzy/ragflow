@@ -24,6 +24,7 @@ concurrency:
 
 jobs:
   prepare:
+    if: github.repository == 'infiniflow/ragflow'
     runs-on: [ "self-hosted", "ragflow-release" ]
     outputs:
       release_tag: ${{ steps.release.outputs.release_tag }}

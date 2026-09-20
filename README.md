@@ -1,3 +1,5 @@
+> ARM64 fork: see [ARM64 images](./ARM64.md) for GitHub builds, runtime checks and GHCR images.
+
 <div align="center">
 <a href="https://cloud.ragflow.io/">
 <img src="https://raw.githubusercontent.com/infiniflow/ragflow/main/web/src/assets/logo-with-text.svg" width="520" alt="ragflow logo">

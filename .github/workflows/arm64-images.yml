@@ -1,0 +1,79 @@
+name: ARM64 images
+on:
+  pull_request:
+    branches: [arm64-native]
+  push:
+    branches: [arm64-native]
+  workflow_dispatch:
+    inputs:
+      component:
+        description: Image to build
+        type: choice
+        options: [ragflow, mineru]
+        default: ragflow
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arm64-${{ github.event.pull_request.number || github.ref }}-${{ inputs.component || 'ragflow' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  preflight:
+    if: github.repository == 'chengzyzy/ragflow'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Check ARM64 workflows
+        run: |
+          curl --fail --silent --show-error --location --retry 3 --connect-timeout 15 --max-time 120 \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_arm64.tar.gz \
+            --output "$RUNNER_TEMP/actionlint.tar.gz"
+          printf '%s  %s\n' '325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6' \
+            "$RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check --status
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes= \
+            .github/workflows/arm64-images.yml .github/workflows/arm64-build.yml
+      - name: Check ARM64 Python and shell syntax
+        run: |
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+
+          for filename in ("api/utils/web_utils.py", "tools/arm64/image_smoke.py"):
+              ast.parse(Path(filename).read_text(), filename=filename)
+          PY
+          for script in docker/entrypoint.sh docker/mineru-arm64/entrypoint.sh tools/arm64/service_smoke.sh; do
+            bash -n "$script"
+          done
+      - name: Validate CI Compose configuration
+        env:
+          IMAGE: ragflow:preflight
+          SMOKE_PASSWORD: ci-config-only
+          SMOKE_DIR: ${{ runner.temp }}
+        run: docker compose --env-file /dev/null --file tools/arm64/compose.smoke.yml config --quiet
+
+  check:
+    needs: preflight
+    if: github.repository == 'chengzyzy/ragflow' && github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/arm64-native'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/arm64-build.yml
+    with:
+      component: ${{ inputs.component || 'ragflow' }}
+      publish: false
+
+  publish:
+    needs: preflight
+    if: github.repository == 'chengzyzy/ragflow' && github.event_name != 'pull_request' && github.ref == 'refs/heads/arm64-native'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/arm64-build.yml
+    with:
+      component: ${{ inputs.component || 'ragflow' }}
+      publish: true

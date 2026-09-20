@@ -192,7 +192,10 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     fi
 done < "${TEMPLATE_FILE}"
 
-export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/"
+case "$(uname -m)" in
+    aarch64|arm64) export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu/" ;;
+    *)             export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu/" ;;
+esac
 PY=python3
 
 # -----------------------------------------------------------------------------

@@ -96,18 +96,6 @@ def html2pdf(
     return result
 
 
-def __send_devtools(driver, cmd, params={}):
-    resource = "/session/%s/chromium/send_command_and_get_result" % driver.session_id
-    url = driver.command_executor._url + resource
-    body = json.dumps({"cmd": cmd, "params": params})
-    response = driver.command_executor._request("POST", url, body)
-
-    if not response:
-        raise Exception(response.get("value"))
-
-    return response.get("value")
-
-
 def __get_pdf_from_html(path: str, timeout: int, install_driver: bool, print_options: dict):
     webdriver_options = Options()
     webdriver_prefs = {}
@@ -121,11 +109,20 @@ def __get_pdf_from_html(path: str, timeout: int, install_driver: bool, print_opt
 
     driver = None
     try:
-        if install_driver:
+        # Prefer the browser/driver bundled in the image (arm64 builds ship a
+        # native Chrome for Testing); only fall back to a runtime download when
+        # the local driver is missing.
+        chrome_binary = "/opt/chrome/chrome"
+        if os.path.exists(chrome_binary):
+            webdriver_options.binary_location = chrome_binary
+        local_chromedriver = "/usr/local/bin/chromedriver"
+        if install_driver and os.path.exists(local_chromedriver):
+            service = Service(local_chromedriver)
+        elif install_driver:
             service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=webdriver_options)
         else:
-            driver = webdriver.Chrome(options=webdriver_options)
+            service = None
+        driver = webdriver.Chrome(service=service, options=webdriver_options) if service else webdriver.Chrome(options=webdriver_options)
 
         driver.set_page_load_timeout(BROWSER_FETCH_TIMEOUT)
         driver.set_script_timeout(BROWSER_FETCH_TIMEOUT)
@@ -143,7 +140,10 @@ def __get_pdf_from_html(path: str, timeout: int, install_driver: bool, print_opt
             "preferCSSPageSize": True,
         }
         calculated_print_options.update(print_options)
-        result = __send_devtools(driver, "Page.printToPDF", calculated_print_options)
+        # Selenium 4 removed the private command-executor internals the old
+        # helper relied on (`command_executor._url`); use the supported
+        # Chrome DevTools Protocol entrypoint instead.
+        result = driver.execute_cdp_cmd("Page.printToPDF", calculated_print_options)
         return base64.b64decode(result["data"])
     finally:
         if driver is not None:

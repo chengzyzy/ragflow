@@ -1,3 +1,5 @@
+> ARM64 移植分支：参见 [ARM64 镜像说明](./ARM64.md)，了解 GitHub 构建、运行检查和 GHCR 镜像。
+
 <div align="center">
 <a href="https://cloud.ragflow.io/">
 <img src="https://raw.githubusercontent.com/infiniflow/ragflow/main/web/src/assets/logo-with-text.svg" width="520" alt="ragflow logo">

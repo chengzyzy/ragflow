@@ -1,0 +1,100 @@
+# Temporary GitHub CI services only; no host ports or production data.
+x-healthcheck: &healthcheck
+  interval: 5s
+  timeout: 10s
+  retries: 120
+
+services:
+  ragflow:
+    image: ${IMAGE:?}
+    pull_policy: never
+    platform: linux/arm64
+    init: true
+    command: [--enable-adminserver, --init-model-provider-tables]
+    environment:
+      API_PROXY_SCHEME: python
+      DOC_ENGINE: elasticsearch
+      DB_TYPE: mysql
+      MYSQL_PASSWORD: ${SMOKE_PASSWORD:?}
+      ELASTIC_PASSWORD: ${SMOKE_PASSWORD:?}
+      MINIO_PASSWORD: ${SMOKE_PASSWORD:?}
+      REDIS_PASSWORD: ${SMOKE_PASSWORD:?}
+      ADMIN_DEFAULT_PASSWORD: ${SMOKE_PASSWORD:?}
+      RAGFLOW_SECRET_KEY: ${SMOKE_PASSWORD:?}
+      REGISTER_ENABLED: '0'
+      USE_DOCLING: 'false'
+    volumes:
+      - ${SMOKE_DIR:?}/local.service_conf.yaml:/ragflow/conf/local.service_conf.yaml:ro
+    depends_on:
+      mysql: {condition: service_healthy}
+      es01: {condition: service_healthy}
+      minio: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    mem_limit: 6g
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, curl, --fail, --silent, http://127.0.0.1/api/v1/system/healthz]
+
+  mysql:
+    image: mysql:8.0.40@sha256:d58ac93387f644e4e040c636b8f50494e78e5afc27ca0a87348b2f577da2b7ff
+    platform: linux/arm64
+    environment:
+      MYSQL_ROOT_PASSWORD: ${SMOKE_PASSWORD:?}
+      MYSQL_DATABASE: rag_flow
+      MYSQL_ROOT_HOST: '%'
+    volumes: [/var/lib/mysql]
+    mem_limit: 1g
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD-SHELL, 'MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}" mysql -h 127.0.0.1 -uroot rag_flow -e "SELECT 1"']
+
+  es01:
+    image: elasticsearch:8.11.3@sha256:58a3a280935d830215802322e9a0373faaacdfd646477aa7e718939c2f29292a
+    platform: linux/arm64
+    environment:
+      discovery.type: single-node
+      ELASTIC_PASSWORD: ${SMOKE_PASSWORD:?}
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      xpack.security.enabled: 'true'
+      xpack.security.http.ssl.enabled: 'false'
+      xpack.security.transport.ssl.enabled: 'false'
+    volumes: [/usr/share/elasticsearch/data]
+    mem_limit: 2g
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD-SHELL, 'curl -fsS -u "elastic:$${ELASTIC_PASSWORD}" "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s"']
+
+  minio:
+    image: pgsty/silo:RELEASE.2026-08-06T00-00-00Z@sha256:29a498b24669cae1fed11c1a2fb2b3d73c68829a0a9c0b14e71b386671d38fac
+    platform: linux/arm64
+    environment:
+      MINIO_ROOT_USER: rag_flow
+      MINIO_ROOT_PASSWORD: ${SMOKE_PASSWORD:?}
+    command: [server, /data]
+    volumes: [/data]
+    mem_limit: 512m
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, curl, --fail, --silent, http://localhost:9000/minio/health/live]
+
+  redis:
+    image: valkey/valkey:8@sha256:3fbd2e3e4b6e85e046c1e7c215e8f79087bc0357789184305806664e320996f3
+    platform: linux/arm64
+    environment:
+      REDISCLI_AUTH: ${SMOKE_PASSWORD:?}
+    command: [redis-server, --requirepass, '${SMOKE_PASSWORD:?}']
+    mem_limit: 256m
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, redis-cli, ping]
+
+  mineru:
+    image: ${IMAGE:?}
+    pull_policy: never
+    platform: linux/arm64
+    init: true
+    volumes: [/data]
+    mem_limit: 6g
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8886/openapi.json', timeout=5)"]
