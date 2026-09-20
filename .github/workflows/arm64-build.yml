@@ -31,7 +31,9 @@ jobs:
             mineru) context=docker/mineru-arm64; file=docker/mineru-arm64/Dockerfile; package=ghcr.io/chengzyzy/ragflow-mineru ;;
             *) echo 'Unknown image component' >&2; exit 1 ;;
           esac
-          version=$(git describe --tags --match='v*' --always)
+          # Forks do not necessarily contain the upstream release tags.
+          git fetch --no-tags --filter=blob:none https://github.com/infiniflow/ragflow.git 'refs/tags/v*:refs/tags/v*'
+          version=$(git describe --tags --match='v*' --exclude='*-*')
           tag="sha-${GITHUB_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           printf 'context=%s\nfile=%s\nimage=%s:%s\nversion=%s\ncache=%s-buildcache:arm64\n' \
             "$context" "$file" "$package" "$tag" "$version" "$package" >> "$GITHUB_OUTPUT"

@@ -16,7 +16,7 @@
 
 发布使用内置 `GITHUB_TOKEN`。首次推送后，在 [Packages](https://github.com/chengzyzy?tab=packages) 将运行镜像包设为 Public，部署主机即可匿名拉取。
 
-镜像位于 `ghcr.io/chengzyzy/ragflow` 和 `ghcr.io/chengzyzy/ragflow-mineru`。标签格式为 `sha-<提交前12位>-<运行编号>-<重跑次数>`；每次运行使用新标签。Actions 运行摘要提供完整的 `镜像@sha256:摘要`，部署侧保存并使用该引用。
+镜像位于 `ghcr.io/chengzyzy/ragflow` 和 `ghcr.io/chengzyzy/ragflow-mineru`。标签格式为 `sha-<提交前12位>-<运行编号>-<重跑次数>`；每次运行使用新标签。CI 从上游读取版本 tag，用当前提交可达的正式版本生成版本信息。Actions 运行摘要提供完整的 `镜像@sha256:摘要`，部署侧保存并使用该引用。
 
 构建使用独立的 `ghcr.io/chengzyzy/ragflow-buildcache:arm64` 和 `ghcr.io/chengzyzy/ragflow-mineru-buildcache:arm64` 缓存，按 `mode=max` 复用中间构建层。只有维护分支的发布任务写缓存；首次产生后将这两个缓存包也设为 Public，其他分支的手动检查即可匿名读取。首次无缓存时正常构建，缓存导出失败不影响后续验收；缓存可能在服务验收前更新，本机不拉取或运行缓存。参见 [Docker registry cache](https://docs.docker.com/build/cache/backends/registry/)。
 
