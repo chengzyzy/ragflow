@@ -17,8 +17,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # pipeline extra = torch + torchvision + onnxruntime + transformers (CPU inference).
 # `six` is an undeclared runtime dependency of the 3.4.5 pipeline stack
 # (first parse otherwise dies with "No module named 'six'").
+# Official CPython 3.13 ARM64 CPU wheels avoid PyPI's CUDA dependencies.
 RUN pip install --no-cache-dir "mineru[pipeline]==3.4.5" six==1.17.0 \
-    torch==2.14.0 torchvision==0.29.0 onnxruntime==1.30.0 transformers==4.57.6
+    "https://download.pytorch.org/whl/cpu/torch-2.14.0%2Bcpu-cp313-cp313-manylinux_2_28_aarch64.whl#sha256=092d5c12938850dfbd90a654b3c8dac34c33e300f88eb19ee6f4ef93992c6347" \
+    "https://download.pytorch.org/whl/cpu/torchvision-0.29.0%2Bcpu-cp313-cp313-manylinux_2_28_aarch64.whl#sha256=4d5138e00e117cfd5b7fe70af57d65d00abff2ce9f8581dc97805ecc62a510f5" \
+    onnxruntime==1.30.0 transformers==4.57.6
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

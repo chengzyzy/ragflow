@@ -77,7 +77,7 @@ jobs:
               "$IMAGE" /tmp/smoke.py
           else
             docker run --rm --network none --entrypoint python3 "$IMAGE" -c \
-              'import importlib.metadata, torch, onnxruntime, six; print("MinerU", importlib.metadata.version("mineru"))'
+              'import importlib.metadata, torch, onnxruntime, six; assert torch.version.cuda is None, torch.version.cuda; print("MinerU", importlib.metadata.version("mineru"))'
             docker run --rm --network none --entrypoint mineru-api "$IMAGE" --help
           fi
       - name: Start services and check health
