@@ -5,18 +5,12 @@ on:
   push:
     branches: [arm64-native]
   workflow_dispatch:
-    inputs:
-      component:
-        description: Image to build
-        type: choice
-        options: [ragflow, mineru]
-        default: ragflow
 
 permissions:
   contents: read
 
 concurrency:
-  group: arm64-${{ github.event.pull_request.number || github.ref }}-${{ inputs.component || 'ragflow' }}
+  group: arm64-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -47,7 +41,7 @@ jobs:
           for filename in ("api/utils/web_utils.py", "tools/arm64/image_smoke.py"):
               ast.parse(Path(filename).read_text(), filename=filename)
           PY
-          for script in docker/entrypoint.sh docker/mineru-arm64/entrypoint.sh tools/arm64/service_smoke.sh; do
+          for script in docker/entrypoint.sh tools/arm64/service_smoke.sh; do
             bash -n "$script"
           done
       - name: Validate CI Compose configuration
@@ -64,7 +58,6 @@ jobs:
       contents: read
     uses: ./.github/workflows/arm64-build.yml
     with:
-      component: ${{ inputs.component || 'ragflow' }}
       publish: false
 
   publish:
@@ -75,5 +68,4 @@ jobs:
       packages: write
     uses: ./.github/workflows/arm64-build.yml
     with:
-      component: ${{ inputs.component || 'ragflow' }}
       publish: true

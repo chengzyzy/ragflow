@@ -5,9 +5,7 @@ set -euo pipefail
 [[ ${GITHUB_ACTIONS:-} == true && ${RUNNER_ARCH:-} == ARM64 ]] || {
     echo 'Service smoke checks require a GitHub ARM64 runner.' >&2; exit 1;
 }
-component=${1:?Usage: service_smoke.sh ragflow|mineru IMAGE}
-case "$component" in ragflow|mineru) ;; *) exit 1 ;; esac
-export IMAGE=${2:?Missing image}
+export IMAGE=${1:?Usage: service_smoke.sh IMAGE}
 export SMOKE_DIR
 SMOKE_DIR=$(mktemp -d "${RUNNER_TEMP:?}/arm64-smoke.XXXXXX")
 export SMOKE_PASSWORD
@@ -17,7 +15,7 @@ printf 'user_default_llm: {}\n' > "$SMOKE_DIR/local.service_conf.yaml"
 log_dir="$RUNNER_TEMP/arm64-service-smoke"
 mkdir -p "$log_dir"
 compose=(docker compose --env-file /dev/null
-    --project-name "arm64-ci-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}-$component"
+    --project-name "arm64-ci-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}-ragflow"
     --file "$(dirname "${BASH_SOURCE[0]}")/compose.smoke.yml")
 
 cleanup() {
@@ -36,14 +34,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ $component == ragflow ]]; then
-    sudo sysctl -w vm.max_map_count=262144
-fi
-"${compose[@]}" up --detach --no-build --wait --wait-timeout 900 "$component"
+sudo sysctl -w vm.max_map_count=262144
+"${compose[@]}" up --detach --no-build --wait --wait-timeout 900 ragflow
 
-if [[ $component == ragflow ]]; then
-    # healthz covers database/search/storage/Redis, but not the worker or admin.
-    "${compose[@]}" exec -T ragflow python3 - <<'PY'
+# healthz covers database/search/storage/Redis, but not the worker or admin.
+"${compose[@]}" exec -T ragflow python3 - <<'PY'
 import json
 import os
 import time
@@ -81,8 +76,4 @@ while time.monotonic() < deadline:
     time.sleep(5)
 raise SystemExit(f"Service smoke failed: {last_error}")
 PY
-else
-    "${compose[@]}" exec -T mineru python3 -c \
-        'import json, urllib.request; schema = json.load(urllib.request.urlopen("http://127.0.0.1:8886/openapi.json", timeout=10)); assert "/file_parse" in schema["paths"]'
-fi
-printf '%s normal entrypoint and service health checks passed.\n' "$component"
+printf 'RAGFlow normal entrypoint and service health checks passed.\n'

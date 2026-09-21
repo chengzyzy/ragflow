@@ -2,9 +2,6 @@ name: ARM64 native build
 on:
   workflow_call:
     inputs:
-      component:
-        required: true
-        type: string
       publish:
         required: true
         type: boolean
@@ -23,20 +20,14 @@ jobs:
           persist-credentials: false
       - name: Select image and source version
         id: config
-        env:
-          COMPONENT: ${{ inputs.component }}
         run: |
-          case "$COMPONENT" in
-            ragflow) context=.; file=Dockerfile; package=ghcr.io/chengzyzy/ragflow ;;
-            mineru) context=docker/mineru-arm64; file=docker/mineru-arm64/Dockerfile; package=ghcr.io/chengzyzy/ragflow-mineru ;;
-            *) echo 'Unknown image component' >&2; exit 1 ;;
-          esac
+          image_package=ghcr.io/chengzyzy/ragflow
           # Forks do not necessarily contain the upstream release tags.
           git fetch --no-tags --filter=blob:none https://github.com/infiniflow/ragflow.git 'refs/tags/v*:refs/tags/v*'
           version=$(git describe --tags --match='v*' --exclude='*-*')
           tag="sha-${GITHUB_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          printf 'context=%s\nfile=%s\nimage=%s:%s\nversion=%s\ncache=%s-buildcache:arm64\n' \
-            "$context" "$file" "$package" "$tag" "$version" "$package" >> "$GITHUB_OUTPUT"
+          printf 'image=%s:%s\nversion=%s\ncache=%s-buildcache:arm64\n' \
+            "$image_package" "$tag" "$version" "$image_package" >> "$GITHUB_OUTPUT"
       - name: Reserve disk space on the GitHub runner
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
@@ -50,8 +41,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v7
         with:
-          context: ${{ steps.config.outputs.context }}
-          file: ${{ steps.config.outputs.file }}
+          context: .
+          file: Dockerfile
           platforms: linux/arm64
           load: true
           provenance: false
@@ -65,7 +56,6 @@ jobs:
           cache-to: ${{ env.PUBLISH == 'true' && format('type=registry,ref={0},mode=max,ignore-error=true', steps.config.outputs.cache) || '' }}
       - name: Check native image before pushing
         env:
-          COMPONENT: ${{ inputs.component }}
           IMAGE: ${{ steps.config.outputs.image }}
           VERSION: ${{ steps.config.outputs.version }}
         run: |
@@ -73,25 +63,18 @@ jobs:
           docker buildx prune --all --force
           test "$(docker image inspect --format '{{.Architecture}}' "$IMAGE")" = arm64
           test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE")" = "$GITHUB_SHA"
-          if [[ "$COMPONENT" == ragflow ]]; then
-            docker run --rm --network none --entrypoint python3 --env "EXPECTED_VERSION=$VERSION" \
-              --mount "type=bind,src=${GITHUB_WORKSPACE}/tools/arm64/image_smoke.py,dst=/tmp/smoke.py,readonly" \
-              "$IMAGE" /tmp/smoke.py
-          else
-            docker run --rm --network none --entrypoint python3 "$IMAGE" -c \
-              'import importlib.metadata, torch, onnxruntime, six; assert torch.version.cuda is None, torch.version.cuda; print("MinerU", importlib.metadata.version("mineru"))'
-            docker run --rm --network none --entrypoint mineru-api "$IMAGE" --help
-          fi
+          docker run --rm --network none --entrypoint python3 --env "EXPECTED_VERSION=$VERSION" \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/tools/arm64/image_smoke.py,dst=/tmp/smoke.py,readonly" \
+            "$IMAGE" /tmp/smoke.py
       - name: Start services and check health
         env:
-          COMPONENT: ${{ inputs.component }}
           IMAGE: ${{ steps.config.outputs.image }}
-        run: bash tools/arm64/service_smoke.sh "$COMPONENT" "$IMAGE"
+        run: bash tools/arm64/service_smoke.sh "$IMAGE"
       - name: Preserve service diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: arm64-${{ inputs.component }}-service-logs-${{ github.run_attempt }}
+          name: arm64-ragflow-service-logs-${{ github.run_attempt }}
           path: ${{ runner.temp }}/arm64-service-smoke/
           if-no-files-found: ignore
           retention-days: 7

@@ -87,14 +87,3 @@ services:
     healthcheck:
       <<: *healthcheck
       test: [CMD, redis-cli, ping]
-
-  mineru:
-    image: ${IMAGE:?}
-    pull_policy: never
-    platform: linux/arm64
-    init: true
-    volumes: [/data]
-    mem_limit: 6g
-    healthcheck:
-      <<: *healthcheck
-      test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8886/openapi.json', timeout=5)"]
