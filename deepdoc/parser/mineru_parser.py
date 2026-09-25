@@ -148,6 +148,9 @@ class MinerUParser(RAGFlowPdfParser):
     def __init__(self, mineru_path: str = "mineru", mineru_api: str = "", mineru_server_url: str = ""):
         self.mineru_api = mineru_api.rstrip("/")
         self.mineru_server_url = mineru_server_url.rstrip("/")
+        self.api_timeout_seconds = int(os.environ.get("MINERU_API_TIMEOUT_SECONDS", "1800"))
+        if self.api_timeout_seconds <= 0:
+            raise ValueError("MINERU_API_TIMEOUT_SECONDS must be positive")
         self.outlines = []
         self.page_from = 0
         self.page_to = MAXIMUM_PAGE_NUMBER
@@ -334,7 +337,7 @@ class MinerUParser(RAGFlowPdfParser):
                     files=files,
                     data=data,
                     headers=headers,
-                    timeout=1800,
+                    timeout=self.api_timeout_seconds,
                     stream=True,
                 ) as response:
                     response.raise_for_status()

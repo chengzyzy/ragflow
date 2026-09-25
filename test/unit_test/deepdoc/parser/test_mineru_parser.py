@@ -612,6 +612,7 @@ def _capture_run_mineru_api(monkeypatch, module, *, pdf_path: Path, extracted_di
         captured["url"] = url
         captured["data"] = data
         captured["files"] = files
+        captured["timeout"] = timeout
         return _FakePostContext(_FakeZipResponse(), captured)
 
     monkeypatch.setattr(module.requests, "post", fake_post)
@@ -691,6 +692,25 @@ def test_run_mineru_api_uses_full_document_when_no_range_given(monkeypatch, tmp_
 
     assert captured["data"]["start_page_id"] == 0
     assert captured["data"]["end_page_id"] == 99999
+
+
+@pytest.mark.parametrize(("configured_timeout", "expected_timeout"), [(None, 1800), ("3600", 3600)])
+def test_run_mineru_api_uses_configured_timeout(monkeypatch, tmp_path, configured_timeout, expected_timeout):
+    module = _load_mineru_parser(monkeypatch)
+    if configured_timeout is None:
+        monkeypatch.delenv("MINERU_API_TIMEOUT_SECONDS", raising=False)
+    else:
+        monkeypatch.setenv("MINERU_API_TIMEOUT_SECONDS", configured_timeout)
+    parser = module.MinerUParser(mineru_api="http://mineru.local")
+    pdf_path = tmp_path / "sample.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4 fake")
+    extracted_dir = tmp_path / "out"
+    extracted_dir.mkdir()
+    captured = _capture_run_mineru_api(monkeypatch, module, pdf_path=pdf_path, extracted_dir=extracted_dir)
+
+    parser._run_mineru_api(pdf_path, extracted_dir, module.MinerUParseOptions())
+
+    assert captured["timeout"] == expected_timeout
 
 
 def test_end_page_minus_one_normalizes_for_mineru_api(monkeypatch, tmp_path):
